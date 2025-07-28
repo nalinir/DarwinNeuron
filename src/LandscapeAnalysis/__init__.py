@@ -5,4 +5,4 @@ from .Pipeline import RandmanProblemConfig, generate_randman_problem, \
     ParameterSampleConfig, generate_and_save_samples, \
     LossSurfaceConfig, assign_samples_to_problem, \
     calculate_and_save_loss
-
+from .SHDFunctions import generate_and_save_shd, get_SHD_dataset
