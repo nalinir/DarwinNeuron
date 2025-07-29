@@ -1,6 +1,10 @@
 
 from src.Utilities import match_config, next_id
-
+from dataclasses import dataclass
+import os
+import pandas as pd
+import torch
+from dataclasses import asdict
 
 # Eventually - could make these functions generalized between the 2
 @dataclass
@@ -12,12 +16,12 @@ class SHDConfig:
     time_step: float = 0.002
 
     @classmethod
-    def lookup_by_id(cls, table_path, id: int):
+    def lookup_by_id(cls, id: int, table_path: str = 'data/SHD/meta-data.csv'):
         """
         Lookup a row by id in a CSV file.
         Args:
-            table_path (str): Path to the CSV file containing SHD configurations.
             id (int): The ID of the configuration to look up.
+            table_path (str): Path to the CSV file containing SHD configurations.
         Returns:
             SHDConfig: An instance of SHDConfig with parameters from the specified row.
         """
@@ -98,4 +102,4 @@ def generate_and_save_SHD(config: SHDConfig, save_dir="data/SHD"):
         df = pd.DataFrame([config_dict], index=[0])
 
     df.to_csv(meta_path, index=True, index_label='id')
-    return filepath
+    return df

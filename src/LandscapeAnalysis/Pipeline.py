@@ -16,7 +16,7 @@ class RandmanProblemConfig:
     def lookup_by_id(cls, id: int, db_path='data/landscape-analysis.db'):
         con = sqlite3.connect(db_path)
         cur = con.cursor()
-        cur.execute(f"SELECT randman_id, nb_hidden, loss_fn FROM problems WHERE id = {id}")
+        cur.execute(f"SELECT randman_id, nb_hidden, loss_fn FROM randman_problems WHERE id = {id}")
         row = cur.fetchone()
         con.close()
         return cls(*row) 
@@ -43,7 +43,7 @@ def generate_randman_problem(randman_config: RandmanConfig, nb_hidden=40, loss_f
 
     # Check if the problem already exists in the database
     cur.execute(f"""
-        SELECT id FROM problems 
+        SELECT id FROM randman_problems 
         WHERE randman_id = {randman_row["id"]} AND nb_hidden = {nb_hidden} AND loss_fn = '{loss_fn}'
     """)
     existing_problem = cur.fetchone()
@@ -54,7 +54,7 @@ def generate_randman_problem(randman_config: RandmanConfig, nb_hidden=40, loss_f
 
     # Insert the new problem into the database
     cur.execute(f"""
-        INSERT INTO problems (randman_id, nb_hidden, loss_fn, dim) 
+        INSERT INTO randman_problems (randman_id, nb_hidden, loss_fn, dim) 
         VALUES ({int(randman_row["id"])}, {nb_hidden}, '{loss_fn}', {dim})
     """)
 
@@ -66,6 +66,7 @@ import uuid, os, sqlite3
 import numpy as np
 from dataclasses import dataclass
 from pflacco.sampling import create_initial_sample
+from tqdm import tqdm # Import tqdm for the progress bar
 
 @dataclass
 class ParameterSampleConfig:
@@ -114,49 +115,76 @@ class ParameterSampleConfig:
 def add_samples(sample_config: ParameterSampleConfig, nb_versions=30, sample_dir="data/samples", db_path='data/landscape-analysis.db'):
     os.makedirs(sample_dir, exist_ok=True)
     
-    con = sqlite3.connect(db_path)
-    cur = con.cursor()
-    
-    # Check if the sample configuration already exists in the database
-    cur.execute(f"""
-        SELECT version FROM samples 
-        WHERE dim = {sample_config.dim} AND nb_sample = {sample_config.nb_sample} 
-        AND method = '{sample_config.method}' AND lower_bound = {sample_config.lower_bound} 
-        AND upper_bound = {sample_config.upper_bound}
-    """)
-    existing_versions = cur.fetchall()
-    min_version = 0 if existing_versions is None else int(np.max(existing_versions)) + 1
-    
-    filename_list = []
-    sample_list = []
-    for version in range(min_version, min_version + nb_versions):                 
-        # Create sample
-        sample = create_initial_sample(sample_config.dim, 
-                                       n=sample_config.nb_sample, 
-                                       lower_bound=sample_config.lower_bound, 
-                                       upper_bound=sample_config.upper_bound, 
-                                       sample_type=sample_config.method,
-                                       seed=version)
-        sample_list.append(sample)
+    con = None # Initialize con to None for finally block
+    try:
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
         
-        # name the file
-        filename = f"{uuid.uuid4().hex}.npy"
-        filename_list.append(filename)
+        # Check if the sample configuration already exists in the database
+        # Use parameterized queries to prevent SQL injection and handle types correctly
+        cur.execute("""
+            SELECT version FROM samples 
+            WHERE dim = ? AND nb_sample = ? 
+            AND method = ? AND lower_bound = ? 
+            AND upper_bound = ?
+        """, (sample_config.dim, sample_config.nb_sample, 
+              sample_config.method, sample_config.lower_bound, 
+              sample_config.upper_bound))
         
-        # Insert the new sample configuration into the database
-        cur.execute(f"""
-            INSERT INTO samples (dim, nb_sample, method, lower_bound, upper_bound, version, filename) 
-            VALUES ({sample_config.dim}, {sample_config.nb_sample}, '{sample_config.method}', 
-            {sample_config.lower_bound}, {sample_config.upper_bound}, {version}, '{filename}')
-        """)
-    
-    con.commit()
-    con.close()
-    
-    # save after closing the database connection 
-    for filename, sample in zip(filename_list, sample_list):
-        filepath = os.path.join(sample_dir, filename)
-        np.save(filepath, sample)
+        existing_versions = cur.fetchall()
+        
+        if not existing_versions:
+            min_version = 0
+        else:
+            flat_versions = [v[0] for v in existing_versions]
+            min_version = int(np.max(flat_versions)) + 1
+        
+        # Loop to generate and save each sample immediately
+        for version in tqdm(range(min_version, min_version + nb_versions),
+                            desc="Generating Samples"):
+            # Create sample
+            # Ensure create_initial_sample produces a NumPy array
+            sample = create_initial_sample(sample_config.dim, 
+                                           n=sample_config.nb_sample, 
+                                           lower_bound=sample_config.lower_bound, 
+                                           upper_bound=sample_config.upper_bound, 
+                                           sample_type=sample_config.method,
+                                           seed=version)
+            
+            # Generate filename
+            filename = f"{uuid.uuid4().hex}.npy"
+            filepath = os.path.join(sample_dir, filename)
+            
+            # Save the sample to disk IMMEDIATELY
+            np.save(filepath, sample)
+            
+            # Explicitly delete the sample from memory if it's large and no longer needed
+            # This is good practice for large objects inside loops.
+            del sample 
+            
+            # Insert the new sample configuration into the database
+            cur.execute("""
+                INSERT INTO samples (dim, nb_sample, method, lower_bound, upper_bound, version, filename) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (sample_config.dim, sample_config.nb_sample, sample_config.method, 
+                  sample_config.lower_bound, sample_config.upper_bound, version, filename))
+            
+            # Commit after each successful save + DB insert. 
+            # This makes the process more robust to crashes (samples are not lost)
+            # and prevents accumulating too many changes in memory before a single commit.
+            con.commit() 
+            
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        if con:
+            con.rollback() # Rollback changes if an error occurs
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        if con:
+            con.rollback()
+    finally:
+        if con:
+            con.close() # Ensure the connection is closed even if errors occur
     
 #################################### Match problem and sample ####################################
 import os, sqlite3, numpy as np

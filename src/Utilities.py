@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass, asdict
+from tqdm import tqdm
 
 def init_result_csv(config, project):
     """
@@ -164,7 +165,7 @@ def evaluate_snn(model, dataloader, loss_fn, device):
     test_loss, correct = 0, 0
     spike_count_per_neuron = []
 
-    for x, y in dataloader:
+    for x, y in tqdm(dataloader, desc="Evaluating SNN"):
         x, y = x.to(device), y.to(device)
         stats = run_snn_on_batch(model, x, y, loss_fn) 
         test_loss += stats.loss
