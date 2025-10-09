@@ -72,7 +72,7 @@ def make_spiking_dataset(nb_classes=10, nb_units=100, nb_steps=100, step_frac=1.
         targets.append(x)
 
     data = np.concatenate(data, axis=0)
-    labels = np.array(np.concatenate(labels, axis=0), dtype=int)
+    labels = np.array(np.concatenate(labels, axis=0), dtype=int64)
     targets = np.concatenate(targets, axis=0)
 
     if shuffle:
@@ -123,7 +123,7 @@ class RandmanConfig:
     alpha: float = 2.0    
     
     @classmethod
-    def lookup_by_id(cls, table_path, id: int):
+    def lookup_by_id(cls, id: int, table_path: str):
         """
         Lookup a row by id in a CSV file.
         Args:
@@ -175,7 +175,7 @@ def get_randman_dataset(config: RandmanConfig):
     spike_train = events_to_spike_train(data, config.nb_steps, config.nb_units)
     
     spike_train = torch.Tensor(spike_train)
-    label = torch.Tensor(label)
+    label = torch.Tensor(label, dtype=torch.long)
     
     # encapulate using Torch.Dataset
     dataset = TensorDataset(spike_train, label)
@@ -220,17 +220,47 @@ def generate_and_save_randman(config: RandmanConfig, save_dir="data/randman"):
     df.to_csv(meta_path, index=True, index_label='id')
     return filepath
 
-def split_and_load(data, batch_size):
-    tmp_dataset, _ = train_test_split(data, test_size=0.2, shuffle=False)
-    train_dataset, val_dataset = train_test_split(tmp_dataset, test_size=0.25, shuffle=False)
+
+def split_and_load(data, batch_size, random_state=42):
+    """
+    Splits the data into deterministic training and validation sets,
+    ensuring labels are of type torch.long.
+    """
+    # Fix the data type of the labels immediately
+    labels = data.tensors[1]
+    if labels.dtype != torch.long:
+        labels = labels.to(torch.long)
+    
+    # Create a new TensorDataset with the corrected labels
+    corrected_data = TensorDataset(data.tensors[0], labels)
+    
+    # Use the corrected data for splitting
+    tmp_dataset, _ = train_test_split(corrected_data, test_size=0.2, shuffle=True, random_state=random_state)
+    train_dataset, val_dataset = train_test_split(tmp_dataset, test_size=0.25, shuffle=True, random_state=random_state)
+    
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    
     return train_dataloader, val_dataloader
 
-def split_test_and_load(data):
-    '''
-        For hyperparameters see read_randman10_dataset().
-    '''
-    _, test_dataset = train_test_split(data, test_size=0.2, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=False)
+# -----------------------------------------------------------------------------
+
+def split_test_and_load(data, batch_size, random_state=42):
+    """
+    Splits the data to get a deterministic test set,
+    ensuring labels are of type torch.long.
+    """
+    # Fix the data type of the labels immediately
+    labels = data.tensors[1]
+    if labels.dtype != torch.long:
+        labels = labels.to(torch.long)
+
+    # Create a new TensorDataset with the corrected labels
+    corrected_data = TensorDataset(data.tensors[0], labels)
+
+    # Use the corrected data for splitting
+    _, test_dataset = train_test_split(corrected_data, test_size=0.2, shuffle=True, random_state=random_state)
+    
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    
     return test_dataloader
