@@ -1,0 +1,4 @@
+id,nb_inputs,max_time,noise,time_step,filename
+0,700,1.0,False,0.002,/scratch/nar8991/snn/snn_ann_hybrid/maren_data/shd/700_inputs/1.0_max_time/False_noise/cache_0.002
+1,70,1.0,False,0.002,/scratch/nar8991/snn/snn_ann_hybrid/maren_data/shd/70_inputs/1.0_max_time/False_noise/cache_0.002
+2,70,1.0,False,0.005,/scratch/nar8991/snn/snn_ann_hybrid/maren_data/shd/70_inputs/1.0_max_time/False_noise/cache_0.005
